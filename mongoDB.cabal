@@ -106,7 +106,8 @@ Benchmark bench
                     , containers -any
                     , mtl >= 2
                     , cryptohash -any
-                    , network -any
+                    , network >= 3.0.0.0
+                    , network-bsd -any
                     , nonce >= 1.0.5
                     , stm
                     , parsec -any
