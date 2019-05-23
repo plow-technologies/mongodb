@@ -14,11 +14,12 @@ module Database.MongoDB.Connection (
     -- * Connection
     Pipe, close, isClosed,
     -- * Server
-    Host(..), PortID(..), defaultPort, host, showHostPort, readHostPort,
+    Host(..), PortNumber, defaultPort, host, showHostPort, readHostPort,
     readHostPortM, globalConnectTimeout, connect, connect',
     -- * Replica Set
     ReplicaSetName, openReplicaSet, openReplicaSet',
-    ReplicaSet, primary, secondaryOk, routedHost, closeReplicaSet, replSetName
+    ReplicaSet, primary, secondaryOk, routedHost, closeReplicaSet, replSetName,
+    connectTo
 ) where
 
 import Prelude hiding (lookup)
@@ -29,8 +30,12 @@ import Data.List (intersect, partition, (\\), delete)
 import Control.Applicative ((<$>))
 #endif
 
+import Control.Exception (bracketOnError)
 import Control.Monad (forM_)
-import Network (HostName, PortID(..), connectTo)
+import qualified Network.BSD
+import Network.Socket (HostName, PortNumber)
+import qualified Network.Socket as Socket
+import qualified System.IO as IO
 import System.IO.Unsafe (unsafePerformIO)
 import System.Timeout (timeout)
 import Text.ParserCombinators.Parsec (parse, many1, letter, digit, char, eof,
@@ -39,7 +44,7 @@ import qualified Data.List as List
 
 
 import Control.Monad.Identity (runIdentity)
-import Control.Monad.Error (throwError)
+import Control.Monad.Except (throwError)
 import Control.Concurrent.MVar.Lifted (MVar, newMVar, withMVar, modifyMVar,
                                        readMVar)
 import Data.Bson (Document, at, (=:))
@@ -64,11 +69,11 @@ adminCommand cmd pipe =
 
 -- * Host
 
-data Host = Host HostName PortID  deriving (Show, Eq, Ord)
+data Host = Host HostName PortNumber  deriving (Show, Eq, Ord)
 
-defaultPort :: PortID
+defaultPort :: PortNumber
 -- ^ Default MongoDB port = 27017
-defaultPort = PortNumber 27017
+defaultPort = 27017
 
 host :: HostName -> Host
 -- ^ Host on 'defaultPort'
@@ -77,13 +82,7 @@ host hostname = Host hostname defaultPort
 showHostPort :: Host -> String
 -- ^ Display host as \"host:port\"
 -- TODO: Distinguish Service and UnixSocket port
-showHostPort (Host hostname port) = hostname ++ ":" ++ portname  where
-    portname = case port of
-        Service s -> s
-        PortNumber p -> show p
-#if !defined(mingw32_HOST_OS) && !defined(cygwin32_HOST_OS) && !defined(_WIN32)
-        UnixSocket s -> s
-#endif
+showHostPort (Host hostname port) = hostname ++ ":" ++ show (fromIntegral port :: Integer)
 
 readHostPortM :: (Monad m) => String -> m Host
 -- ^ Read string \"hostname:port\" as @Host hosthame (PortNumber port)@ or \"hostname\" as @host hostname@ (default port). Fail if string does not match either syntax.
@@ -97,7 +96,7 @@ readHostPortM = either (fail . show) return . parse parser "readHostPort" where
             _ <- char ':'
             port :: Int <- read <$> many1 digit
             spaces >> eof
-            return $ Host h (PortNumber $ fromIntegral port)
+            return $ Host h (fromIntegral port)
 
 readHostPort :: String -> Host
 -- ^ Read string \"hostname:port\" as @Host hostname (PortNumber port)@ or \"hostname\" as @host hostname@ (default port). Error if string does not match either syntax.
@@ -123,6 +122,22 @@ connect' timeoutSecs (Host hostname port) = do
       p <- newPipe sd handle
       sd <- access p slaveOk "admin" retrieveServerData
     return p
+
+-- take from http://hackage.haskell.org/package/network-2.6.3.6/docs/src/Network.html#connectTo
+connectTo :: HostName           -- Hostname
+    -> PortNumber             -- Port Identifier
+    -> IO IO.Handle          -- Connected Socket
+connectTo hostname portNumber = do
+    proto <- Network.BSD.getProtocolNumber "tcp"
+    bracketOnError
+        (Socket.socket Socket.AF_INET Socket.Stream proto)
+        (Socket.close)  -- only done if there's an error
+        (\sock -> do
+          he <- Network.BSD.getHostByName hostname
+          let port = fromIntegral portNumber
+          Socket.connect sock (Socket.SockAddrInet port (Network.BSD.hostAddress he))
+          Socket.socketToHandle sock IO.ReadWriteMode
+        )
 
 -- * Replica Set
 

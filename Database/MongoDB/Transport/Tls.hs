@@ -26,7 +26,6 @@ module Database.MongoDB.Transport.Tls
 where
 
 import Data.IORef
-import Data.Monoid
 import qualified Data.ByteString as ByteString
 import qualified Data.ByteString.Lazy as Lazy.ByteString
 import Data.Default.Class (def)
@@ -39,18 +38,19 @@ import Database.MongoDB.Internal.Protocol (newPipeWith)
 import Database.MongoDB.Transport (Transport(Transport))
 import qualified Database.MongoDB.Transport as T
 import System.IO.Error (mkIOError, eofErrorType)
-import Network (connectTo, HostName, PortID)
+import Network.Socket (HostName, PortNumber)
 import qualified Network.TLS as TLS
 import qualified Network.TLS.Extra.Cipher as TLS
 import Database.MongoDB.Query (access, slaveOk, retrieveServerData)
+import Database.MongoDB.Connection (connectTo)
 
 -- | Connect to mongodb using TLS
-connect :: HostName -> PortID -> IO Pipe
+connect :: HostName -> PortNumber -> IO Pipe
 connect host port = bracketOnError (connectTo host port) hClose $ \handle -> do
 
   let params = (TLS.defaultParamsClient host "")
         { TLS.clientSupported = def
-            { TLS.supportedCiphers = TLS.ciphersuite_all}
+            { TLS.supportedCiphers = TLS.ciphersuite_default}
         , TLS.clientHooks = def
             { TLS.onServerCertificate = \_ _ _ _ -> return []}
         }

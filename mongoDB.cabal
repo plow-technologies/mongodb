@@ -34,7 +34,8 @@ Library
                     , conduit-extra
                     , mtl >= 2
                     , cryptohash -any
-                    , network -any
+                    , network >= 3.0.0.0
+                    , network-bsd -any
                     , parsec -any
                     , random -any
                     , random-shuffle -any
